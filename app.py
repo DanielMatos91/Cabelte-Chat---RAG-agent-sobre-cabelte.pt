@@ -9,7 +9,7 @@ from google.genai import types
 
 CHROMA_DIR = "chroma_db"
 EMBED_MODEL = "gemini-embedding-001"
-CHAT_MODEL = "gemini-2.0-flash"
+CHAT_MODEL = "gemini-1.5-flash"
 TOP_K = 5
 
 st.set_page_config(
