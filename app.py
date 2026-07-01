@@ -4,12 +4,12 @@ Uso: streamlit run app.py
 """
 import streamlit as st
 import chromadb
-from google import genai
-from google.genai import types
+import anthropic
+from sentence_transformers import SentenceTransformer
 
 CHROMA_DIR = "chroma_db"
-EMBED_MODEL = "gemini-embedding-001"
-CHAT_MODEL = "gemini-1.5-flash"
+EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+CHAT_MODEL = "claude-sonnet-4-6"
 TOP_K = 5
 
 st.set_page_config(
@@ -26,12 +26,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🔵 Cabelte Chat")
-st.caption("Assistente sobre produtos, empresa e informações de cabelte.pt · powered by Gemini")
+st.caption("Assistente sobre produtos, empresa e informações de cabelte.pt · powered by Claude")
 
 try:
-    gemini = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+    claude = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 except Exception:
-    st.error("**GEMINI_API_KEY não configurada.** Adiciona a chave em `.streamlit/secrets.toml`.")
+    st.error("**ANTHROPIC_API_KEY não configurada.** Adiciona a chave em `.streamlit/secrets.toml`.")
     st.stop()
 
 SYSTEM_PROMPT = """És um assistente especializado na Cabelte — empresa portuguesa fabricante de cabos eléctricos e de telecomunicações.
@@ -44,6 +44,11 @@ CONTEXTO DO SITE:
 {context}"""
 
 
+@st.cache_resource(show_spinner="A carregar modelo de embeddings...")
+def load_embedder():
+    return SentenceTransformer(EMBED_MODEL)
+
+
 @st.cache_resource(show_spinner="A carregar base de conhecimento...")
 def load_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
@@ -51,12 +56,7 @@ def load_collection():
 
 
 def embed_query(text: str) -> list[float]:
-    result = gemini.models.embed_content(
-        model=EMBED_MODEL,
-        contents=text,
-        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
-    )
-    return result.embeddings[0].values
+    return load_embedder().encode(text).tolist()
 
 
 def retrieve(query: str, collection, k: int = TOP_K):
@@ -115,26 +115,22 @@ if prompt := st.chat_input("Pergunta sobre a Cabelte..."):
             docs, metas = retrieve(prompt, collection)
             context = build_context(docs, metas)
 
-        # Histórico no formato Gemini
-        history = []
-        for m in st.session_state.messages[:-1]:
-            role = "user" if m["role"] == "user" else "model"
-            history.append(types.Content(role=role, parts=[types.Part(text=m["content"])]))
-        history.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
-
-        response = gemini.models.generate_content_stream(
-            model=CHAT_MODEL,
-            contents=history,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT.format(context=context),
-            ),
-        )
+        # Histórico no formato Claude
+        history = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.messages
+        ]
 
         full_response = ""
         placeholder = st.empty()
-        for chunk in response:
-            if chunk.text:
-                full_response += chunk.text
+        with claude.messages.stream(
+            model=CHAT_MODEL,
+            max_tokens=1024,
+            system=SYSTEM_PROMPT.format(context=context),
+            messages=history,
+        ) as stream:
+            for text in stream.text_stream:
+                full_response += text
                 placeholder.markdown(full_response + "▌")
         placeholder.markdown(full_response)
 

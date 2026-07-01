@@ -1,39 +1,19 @@
 """
-Lê cabelte_pages.json, divide em chunks, cria embeddings via Google Gemini
+Lê cabelte_pages.json, divide em chunks, cria embeddings locais (sentence-transformers)
 e guarda no ChromaDB (pasta chroma_db/).
 Uso: python ingest.py
-Requer: GEMINI_API_KEY em .streamlit/secrets.toml ou variável de ambiente
+Não requer chave API — o modelo de embeddings corre localmente.
 """
 import json
 import sys
-import os
-import time
 import chromadb
-from google import genai
-from google.genai import types
+from sentence_transformers import SentenceTransformer
 
 PAGES_FILE = "cabelte_pages.json"
 CHROMA_DIR = "chroma_db"
-EMBED_MODEL = "gemini-embedding-001"
+EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 CHUNK_SIZE = 600
 CHUNK_OVERLAP = 100
-
-
-def get_api_key() -> str:
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        try:
-            import tomllib
-            with open(".streamlit/secrets.toml", "rb") as f:
-                secrets = tomllib.load(f)
-            key = secrets.get("GEMINI_API_KEY", "")
-        except Exception:
-            pass
-    if not key or "cole-aqui" in key:
-        print("ERRO: GEMINI_API_KEY não configurada.")
-        print("Edita .streamlit/secrets.toml e substitui o placeholder pela tua chave.")
-        sys.exit(1)
-    return key
 
 
 def split_text(text: str) -> list[str]:
@@ -55,8 +35,8 @@ def split_text(text: str) -> list[str]:
 
 
 def ingest():
-    api_key = get_api_key()
-    client = genai.Client(api_key=api_key)
+    print(f"A carregar modelo de embeddings local ({EMBED_MODEL})...")
+    model = SentenceTransformer(EMBED_MODEL)
 
     try:
         with open(PAGES_FILE, "r", encoding="utf-8") as f:
@@ -76,8 +56,7 @@ def ingest():
             all_ids.append(f"p{i}_c{j}")
 
     print(f"Total de chunks: {len(all_chunks)}")
-    print(f"A gerar embeddings com {EMBED_MODEL}...")
-    print(f"(limite gratuito: 100 pedidos/min — ritmo controlado automaticamente)\n")
+    print("A gerar embeddings (local, sem limites de pedidos)...")
 
     db = chromadb.PersistentClient(path=CHROMA_DIR)
     try:
@@ -87,27 +66,8 @@ def ingest():
         pass
     collection = db.create_collection("cabelte")
 
-    for idx, (chunk, meta, cid) in enumerate(zip(all_chunks, all_metas, all_ids), 1):
-        for attempt in range(3):
-            try:
-                result = client.models.embed_content(
-                    model=EMBED_MODEL,
-                    contents=chunk,
-                    config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
-                )
-                emb = result.embeddings[0].values
-                collection.add(documents=[chunk], embeddings=[emb], metadatas=[meta], ids=[cid])
-                break
-            except Exception as e:
-                if attempt < 2:
-                    time.sleep(5)
-                else:
-                    print(f"  [ERRO] chunk {cid}: {e}")
-
-        time.sleep(0.65)  # ~92 pedidos/min, abaixo do limite de 100 RPM
-
-        if idx % 20 == 0 or idx == len(all_chunks):
-            print(f"  {idx}/{len(all_chunks)} chunks processados...")
+    embeddings = model.encode(all_chunks, show_progress_bar=True, batch_size=32).tolist()
+    collection.add(documents=all_chunks, embeddings=embeddings, metadatas=all_metas, ids=all_ids)
 
     print(f"\nIngestão completa! {len(all_chunks)} chunks guardados em {CHROMA_DIR}/")
 
