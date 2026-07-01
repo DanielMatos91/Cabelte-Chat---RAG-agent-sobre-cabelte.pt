@@ -31,7 +31,7 @@ st.caption("Assistente sobre produtos, empresa e informações de cabelte.pt · 
 try:
     claude = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 except Exception:
-    st.error("**ANTHROPIC_API_KEY não configurada.** Adiciona a chave em `.streamlit/secrets.toml`.")
+    st.error("**ANTHROPIC_API_KEY não configurada.** Adiciona a chave em `streamlit/secrets.toml`.")
     st.stop()
 
 SYSTEM_PROMPT = """És um assistente especializado na Cabelte — empresa portuguesa fabricante de cabos eléctricos e de telecomunicações.
