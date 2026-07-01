@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 CHROMA_DIR = "chroma_db"
 EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-CHAT_MODEL = "claude-sonnet-4-6"
+CHAT_MODEL = "claude-haiku-4-5"
 TOP_K = 5
 
 st.set_page_config(
